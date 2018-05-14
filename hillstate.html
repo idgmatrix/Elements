@@ -1,0 +1,873 @@
+<html>
+
+<head>
+<title>WebGL</title>
+<meta charset="utf-8">
+
+<script id="shader-fs" type="x-shader/x-fragment">
+precision mediump float;
+
+uniform vec3      iResolution;
+uniform float     iGlobalTime;
+uniform float     iChannelTime[4];
+uniform vec4      iMouse;
+uniform vec4      iDate;
+uniform float     iSampleRate;
+uniform vec3      iChannelResolution[4];
+uniform int       iFrame;
+uniform float     iTimeDelta;
+uniform float     iXpos;
+uniform float     iYpos;
+uniform float     iZpos;
+uniform vec4	iMusic;
+
+struct Channel
+{
+    vec3  resolution;
+    float time;
+};
+
+uniform Channel iChannel[4];
+
+uniform sampler2D iChannel0;
+uniform sampler2D iChannel1;
+uniform sampler2D iChannel2;
+uniform sampler2D iChannel3;
+
+#define MAX_ITERATION 128
+#define EPSILON 0.002
+#define FAR_Z 20.0
+
+const float KEY_SPACE = 32.5/256.0;
+const float KEY_LEFT  = 37.5/256.0;
+const float KEY_UP    = 38.5/256.0;
+const float KEY_RIGHT = 39.5/256.0;
+const float KEY_DOWN  = 40.5/256.0;
+
+vec3 light;
+float hillHeight = 4.0;
+
+vec3 n1 = vec3(1.000,0.000,0.000);
+vec3 n2 = vec3(0.000,1.000,0.000);
+vec3 n3 = vec3(0.000,0.000,1.000);
+vec3 n4 = vec3(0.577,0.577,0.577);
+vec3 n5 = vec3(-0.577,0.577,0.577);
+vec3 n6 = vec3(0.577,-0.577,0.577);
+vec3 n7 = vec3(0.577,0.577,-0.577);
+vec3 n8 = vec3(0.000,0.357,0.934);
+vec3 n9 = vec3(0.000,-0.357,0.934);
+vec3 n10 = vec3(0.934,0.000,0.357);
+vec3 n11 = vec3(-0.934,0.000,0.357);
+vec3 n12 = vec3(0.357,0.934,0.000);
+vec3 n13 = vec3(-0.357,0.934,0.000);
+vec3 n14 = vec3(0.000,0.851,0.526);
+vec3 n15 = vec3(0.000,-0.851,0.526);
+vec3 n16 = vec3(0.526,0.000,0.851);
+vec3 n17 = vec3(-0.526,0.000,0.851);
+vec3 n18 = vec3(0.851,0.526,0.000);
+vec3 n19 = vec3(-0.851,0.526,0.000);
+
+float matID = 0.0;
+
+// p as usual, e exponent (p in the paper), r radius or something like that
+float octahedral(vec3 p, float e, float r) {
+	float s = pow(abs(dot(p,n4)),e);
+	s += pow(abs(dot(p,n5)),e);
+	s += pow(abs(dot(p,n6)),e);
+	s += pow(abs(dot(p,n7)),e);
+	s = pow(s, 1./e);
+	
+	if (abs(s-r) < EPSILON) matID = 1.0;
+	return s-r;
+}
+
+float dodecahedral(vec3 p, float e, float r) {
+	float s = pow(abs(dot(p,n14)),e);
+	s += pow(abs(dot(p,n15)),e);
+	s += pow(abs(dot(p,n16)),e);
+	s += pow(abs(dot(p,n17)),e);
+	s += pow(abs(dot(p,n18)),e);
+	s += pow(abs(dot(p,n19)),e);
+	s = pow(s, 1./e);
+	if (abs(s-r) < EPSILON) matID = 1.0;
+	return s-r;
+}
+
+float icosahedral(vec3 p, float e, float r) {
+	float s = pow(abs(dot(p,n4)),e);
+	s += pow(abs(dot(p,n5)),e);
+	s += pow(abs(dot(p,n6)),e);
+	s += pow(abs(dot(p,n7)),e);
+	s += pow(abs(dot(p,n8)),e);
+	s += pow(abs(dot(p,n9)),e);
+	s += pow(abs(dot(p,n10)),e);
+	s += pow(abs(dot(p,n11)),e);
+	s += pow(abs(dot(p,n12)),e);
+	s += pow(abs(dot(p,n13)),e);
+	s = pow(s, 1./e);
+	if (abs(s-r) < EPSILON) matID = 1.0;
+	return s-r;
+}
+
+float toctahedral(vec3 p, float e, float r) {
+	float s = pow(abs(dot(p,n1)),e);
+	s += pow(abs(dot(p,n2)),e);
+	s += pow(abs(dot(p,n3)),e);
+	s += pow(abs(dot(p,n4)),e);
+	s += pow(abs(dot(p,n5)),e);
+	s += pow(abs(dot(p,n6)),e);
+	s += pow(abs(dot(p,n7)),e);
+	s = pow(s, 1./e);
+	return s-r;
+}
+
+float ticosahedral(vec3 p, float e, float r) {
+	float s = pow(abs(dot(p,n4)),e);
+	s += pow(abs(dot(p,n5)),e);
+	s += pow(abs(dot(p,n6)),e);
+	s += pow(abs(dot(p,n7)),e);
+	s += pow(abs(dot(p,n8)),e);
+	s += pow(abs(dot(p,n9)),e);
+	s += pow(abs(dot(p,n10)),e);
+	s += pow(abs(dot(p,n11)),e);
+	s += pow(abs(dot(p,n12)),e);
+	s += pow(abs(dot(p,n13)),e);
+	s += pow(abs(dot(p,n14)),e);
+	s += pow(abs(dot(p,n15)),e);
+	s += pow(abs(dot(p,n16)),e);
+	s += pow(abs(dot(p,n17)),e);
+	s += pow(abs(dot(p,n18)),e);
+	s += pow(abs(dot(p,n19)),e);
+	s = pow(s, 1./e);
+	return s-r;
+}
+
+float sphere(vec3 p)
+{
+    float r = 1.5;
+
+ 	return length(p) - r;
+}
+
+float sphere2(vec3 p)
+{
+    float r = 0.3;
+    
+    vec3 c = vec3(0.0, 0.5 * sin(iGlobalTime * 2.0), 0.0);
+ 
+    return length(p - c) - r;
+}
+
+float lightSphere(vec3 p)
+{
+    float r = 0.20;
+    
+    vec3 c = light;
+ 
+    return length(p - c) - r;
+}
+
+float plane(vec3 p)
+{
+    float h = -1.1;
+    
+    return p.y - h;
+}
+
+#define Iterations 10
+float tetra(vec3 p)
+{
+	vec3 a1 = vec3(1,1,1);
+	vec3 a2 = vec3(-1,-1,1);
+	vec3 a3 = vec3(1,-1,-1);
+	vec3 a4 = vec3(-1,1,-1);
+	vec3 c;
+	
+	//int Iterations = 1;
+	float Scale = 2.0;
+	
+	int m = 0;
+	float dist, d;
+	for (int n = 0;n < Iterations; n++) {
+		 c = a1; dist = length(p-a1);
+	     d = length(p-a2); if (d < dist) { c = a2; dist=d; }
+		 d = length(p-a3); if (d < dist) { c = a3; dist=d; }
+		 d = length(p-a4); if (d < dist) { c = a4; dist=d; }
+		p = Scale*p-c*(Scale-1.0);
+		//n++;
+		m = n;
+	}
+	m++;
+	return length(p) * pow(Scale, float(-m));
+}
+
+float hillFunc(vec3 p)
+{
+    float r2 = p.x*p.x + p.z*p.z;
+
+	return p.y - hillHeight / (r2 + 1.0);
+    //return p.y - hillHeight * exp(-r2);
+}
+
+vec3 grad(vec3 p)
+{
+ 	vec3 h = vec3(0.02, 0.0, 0.0);
+    
+    return vec3(hillFunc(p + h.xyy) - hillFunc(p - h.xyy),
+				hillFunc(p + h.yxy) - hillFunc(p - h.yxy),
+				hillFunc(p + h.yyx) - hillFunc(p - h.yyx)) / h.xxx;
+}
+
+float hill(vec3 p)
+{
+    float r2 = p.x*p.x + p.z*p.z;
+    
+	float h = p.y - hillHeight / (r2 + 1.0);
+    //float h = p.y - hillHeight * exp(-r2);
+    
+   	vec3 g = grad(p);
+    
+    float ch = h / length(g);
+    
+
+    //if (r2 > 12.0) return h;
+    
+    
+    return ch;
+}
+
+float udRoundCube( vec3 p, float b, float r )
+{
+  float d = length(max(abs(p)-vec3(b,b,b), 0.0))-r;
+  if (d < EPSILON) matID = 1.0;
+  return d;
+}
+
+float udRoundBox( vec3 p, vec3 b, float r )
+{
+  return length(max(abs(p)-b,0.0))-r;
+}
+
+float udBox( vec3 p, vec3 b)
+{
+  return length(max(abs(p)-b, 0.0));
+}
+
+float pi = 3.141592;
+float pi2 = pi * 2.0 * (5.0 / 4.67);
+
+float scene(vec3 p)
+{
+    float d;
+    
+   	//d = hill(p);
+    d = plane(p);
+    d = min(d, lightSphere(p));
+    d = min(d, icosahedral(p - vec3(5.0, 2.0, 0.0), 30.0, 1.0 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.x) );
+    d = min(d, dodecahedral(p - vec3(0.0, 2.0, 5.0), 30.0, 1.0 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.y) );
+    d = min(d, octahedral(p - vec3(-5.0, 2.0, 0.0), 30.0, 0.8 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.z));
+    d = min(d, udRoundCube(p - vec3(0.0, 2.0, -5.0), 1.0 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.w, 0.1) );
+    //d = min(d, tetra(p - vec3(0.0, 2.0, 0.0)) );
+    
+    p.x = mod(p.x, 12.0) - 6.0;
+    p.z = mod(p.z, 12.0) - 6.0;
+    
+    p.y += 0.5;
+	d = min(d, udBox(p, vec3(1.0, 0.8, 1.0)));
+    p.y -= 1.4;
+    d = min(d, udBox(p, vec3(1.0, 0.2, 1.0)));
+    p.y -= 1.0;
+    d = min(d, udBox(p, vec3(1.0, 0.2, 1.0)));
+    p.y -= 0.8;
+    d = min(d, udRoundBox(p, vec3(0.3, 4.0, 0.3), 0.5) );
+    
+	return d;
+}
+
+float sceneShadow(vec3 p)
+{
+    float d;
+    
+   	//d = hill(p);
+    d = plane(p);
+    //d = min(d, lightSphere(p)); 
+    d = min(d, icosahedral(p - vec3(5.0, 2.0, 0.0), 30.0, 1.0 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.x) );
+    d = min(d, dodecahedral(p - vec3(0.0, 2.0, 5.0), 30.0, 1.0 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.y) );
+    d = min(d, octahedral(p - vec3(-5.0, 2.0, 0.0), 30.0, 0.8 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.z));
+    d = min(d, udRoundCube(p - vec3(0.0, 2.0, -5.0), 1.0 + 0.2 * abs(sin(iGlobalTime * pi2)) * iMusic.w, 0.1) );
+    //d = min(d, tetra(p - vec3(0.0, 2.0, 0.0)) );
+	
+    p.x = mod(p.x, 12.0) - 6.0;
+    p.z = mod(p.z, 12.0) - 6.0;
+    
+    p.y += 0.5;
+	d = min(d, udBox(p, vec3(1.0, 0.8, 1.0)));
+    p.y -= 1.4;
+    d = min(d, udBox(p, vec3(1.0, 0.2, 1.0)));
+    p.y -= 1.0;
+    d = min(d, udBox(p, vec3(1.0, 0.2, 1.0)));
+    p.y -= 0.8;
+    d = min(d, udRoundBox(p, vec3(0.3, 4.0, 0.3), 0.5) );
+    
+	return d;
+}
+
+bool Shadow(vec3 p, vec3 vl)
+{
+ 	float d;
+    
+    p += vl * 0.5;
+
+    for (int i = 0; i < 64; i++)
+    {
+     	d = sceneShadow(p);
+            
+        if (d < EPSILON){
+        	return true;        
+        }
+        if (d > length(light-p)) return false; 
+        
+        p += d * vl;
+    }
+    
+    return false;
+}
+
+float softShadow(vec3 p, vec3 vl, float k)
+{
+    float res = 1.0;
+    
+    p += vl * 0.1;
+
+    for (int i = 0; i < 64; i++)
+    {
+     	float d = sceneShadow(p);
+            
+        if (d < EPSILON){
+        	return 0.0;        
+        }
+        
+        if (d > length(light-p)) return 1.0;
+        
+        res = min(res, d * k / 1.0);
+        
+        p += d * vl;
+    }
+    
+    return res;
+}
+
+vec3 Fog(vec3  rgb, float depth )
+{
+    float b = 1.1;
+
+	float fogAmount = 1.0 - exp( -depth*b );
+    vec3  fogColor  = vec3(0.5,0.6,0.7);
+    
+    return mix( rgb, fogColor, fogAmount );
+}
+
+float calcAO( in vec3 pos, in vec3 nor )
+{
+    float ao = 0.0;
+    float sca = 15.0;
+    for(int i = 0; i < 5; i++)
+    {
+        float hr = (0.01 + 0.015*float(i*i));
+        float dd = scene( pos + hr*nor );
+        ao += (hr-dd)*sca;
+        sca *= 0.5;
+    }
+    return 1.0 - clamp( ao, 0.0, 1.0 );
+}
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+	vec2 uv = fragCoord.xy / iResolution.xy;
+	uv = uv * 2.0 - 1.0;
+	float aspectRatio = iResolution.x / iResolution.y;
+    uv.x *= aspectRatio;
+    
+	matID = 0.0;
+	
+    //hillHeight = 1.0;
+    //float moveUP = texture2D( iChannel1, vec2(KEY_UP,0.25) ).x;
+    //float moveDN  = texture2D( iChannel1, vec2(KEY_DOWN,0.25) ).x;
+    
+    //light = vec3(5.0 * cos(iGlobalTime * 1.0), 3.0, 5.0 * sin(iGlobalTime * 1.0));
+    light = vec3(iXpos, iYpos, iZpos);
+    
+    vec3 cam = vec3(0.0, 5.7, 20.0);
+    vec3 p = cam;
+    
+    //vec3 t = (vec3(0.0, 3.0, 0.0) - cam);
+    //t = vec3(t.xy + uv, t.z);
+    
+    uv += vec2(0.0, -0.9);
+   
+    vec3 t = normalize(vec3(uv, -4.0));
+	for (int i = 0; i < MAX_ITERATION; i++)
+    {
+        float d = scene(p);
+        
+        if (d < EPSILON){
+            
+        	//float depth = 1.0 - distance(p, vec3(0.0, 0.0, 2.5)) / FAR_Z;
+        	float depth = distance(p, cam) / FAR_Z;
+
+			vec3 eps = vec3(EPSILON, 0.0, 0.0);
+            vec3 normal;
+        	    
+            normal.x = scene(p + eps.xyz) - scene(p - eps.xyz);
+            normal.y = scene(p + eps.yxz) - scene(p - eps.yxz);
+            normal.z = scene(p + eps.zyx) - scene(p - eps.zyx);
+            
+            normal = normalize(normal);
+
+            vec3 vl = normalize(light - p);
+            vec3 re = reflect(-vl, normal);
+            
+            float specular = pow(max(dot(re, -t), 0.0), 20.0); 
+ 			
+            float diffuse = max(dot(normal, vl), 0.0);
+            //float diffuse = 0.5;
+            
+            //if (dot(vl, normal) < EPSILON) break;
+			
+            
+            float b = diffuse;
+			//float b = min(diffuse, shadow);
+            b += specular;
+            b *= calcAO(p, normal);
+
+            vec4 color = vec4(b,b,b, 1.0);
+            //if (scene(p) < EPSILON){
+            if (matID < 0.5){
+                vec3 n = abs(normal);
+                vec4 tcolor = vec4(n.xxx, 1.0) * texture2D(iChannel0, p.yz * 0.25, 0.0);
+                tcolor += vec4(n.yyy, 1.0) * texture2D(iChannel0, p.xz * 0.25, 0.0);
+                tcolor += vec4(n.zzz, 1.0) * texture2D(iChannel0, p.xy * 0.25, 0.0);
+                
+                color *= tcolor;
+            }
+
+            float shadow;
+            //if (Shadow(p, vl)) shadow = 0.1;
+            shadow = softShadow(p, vl, 5.0);
+            //shadow = 1.0;
+			color *= shadow;
+			
+            vec3 finalColor = vec3(Fog(vec3(color.rgb), depth)); 
+            
+            // Old TV effect
+            //finalColor -= abs(sin(uv.y * 100.0 + iGlobalTime * 5.0)) * 0.08; 
+  			//finalColor -= abs(sin(uv.y * 300.0 - iGlobalTime * 10.0)) * 0.05; 
+            
+			float ld = lightSphere(p);
+            if (ld < EPSILON) {
+				float alpha = 1.0 + ld;
+            	finalColor = mix(finalColor, vec3(1.0, 1.0, 1.0), alpha) ;
+            	//fragColor = vec4(iMusic);            	
+            }
+			
+            fragColor = vec4(finalColor, 1.0);
+            //fragColor = color;
+            
+            //b = calcAO(p, normal);
+            //fragColor = vec4(vec3(b, b, b), 1.0);
+            
+            //fragColor = vec4(normal, 1.0);
+            
+
+            vec2 uiPos = vec2(1.6, -1.7);
+			vec2 xy1 = uiPos + vec2( 0.1,  0.0);//blue
+            vec2 xy2 = uiPos + vec2( 0.0, -0.1);//red
+            vec2 xy3 = uiPos + vec2(-0.1,  0.0);//white
+            vec2 xy4 = uiPos + vec2( 0.0,  0.1);//black
+
+			if (length(uv - xy1) < 0.03 && iMusic.x > 0.5) fragColor = vec4(0.0, 0.0, 1.0, 1.0);
+			if (length(uv - xy2) < 0.03 && iMusic.y > 0.5) fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+			if (length(uv - xy3) < 0.03 && iMusic.z > 0.5) fragColor = vec4(1.0, 1.0, 1.0, 1.0);
+			if (length(uv - xy4) < 0.03 && iMusic.w > 0.5) fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+ 
+			return;
+		}
+		
+		p += d * t;
+    }
+	    
+    fragColor = vec4(0.5, 0.6, 0.7, 1.0);    
+}
+
+void main( void )
+{ 
+        vec4 color = vec4(0.0,0.0,0.0,1.0);
+        mainImage( color, gl_FragCoord.xy );
+        color.w = 1.0;
+        gl_FragColor = color;
+}    
+
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec3 aVertexPosition;
+
+    void main(void) {
+        gl_Position = vec4(aVertexPosition, 1.0);
+    }
+</script>
+
+
+<script type="text/javascript">
+
+    var gl;
+	var timeStart;
+	var timeCurrent;
+	
+	var xpos = 0.0;
+	var ypos = 2.5;
+	var zpos = 0.0;
+
+	var sndBlueOn = true;
+	var sndRedOn = true;
+	var sndWhiteOn = true;
+	var sndBlackOn = true;
+	
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("experimental-webgl");
+            gl.viewportWidth = canvas.width;
+            gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+            alert("Could not initialise WebGL, sorry :-(");
+        }
+    }
+
+    function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+            return null;
+        }
+
+        var str = "";
+        var k = shaderScript.firstChild;
+        while (k) {
+            if (k.nodeType == 3) {
+                str += k.textContent;
+            }
+            k = k.nextSibling;
+        }
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+            return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+    var shaderProgram;
+
+    function initShaders() {
+        var fragmentShader = getShader(gl, "shader-fs");
+        var vertexShader = getShader(gl, "shader-vs");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert("Could not initialise shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+        gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+        shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+        shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+        
+		shaderProgram.iResolutionUniform = gl.getUniformLocation(shaderProgram, "iResolution");
+        shaderProgram.iGlobalTimeUniform = gl.getUniformLocation(shaderProgram, "iGlobalTime");
+        shaderProgram.iChannel0Uniform = gl.getUniformLocation(shaderProgram, "iChannel0");
+
+		shaderProgram.iXposUniform = gl.getUniformLocation(shaderProgram, "iXpos");
+        shaderProgram.iYposUniform = gl.getUniformLocation(shaderProgram, "iYpos");
+        shaderProgram.iZposUniform = gl.getUniformLocation(shaderProgram, "iZpos");
+
+        shaderProgram.iMusicUniform = gl.getUniformLocation(shaderProgram, "iMusic");
+
+		var d = new Date();
+		timeStart = d.getTime();
+    }
+
+    function setUniforms() {
+	
+	var d = new Date();
+	timeCurrent = d.getTime();
+
+	var time = timeCurrent - timeStart;
+
+        gl.uniform3f(shaderProgram.iResolutionUniform, 512.0, 288.0, 0.0);
+        gl.uniform1f(shaderProgram.iGlobalTimeUniform,  time / 1000.0);
+        
+        gl.uniform1f(shaderProgram.iXposUniform, xpos);
+        gl.uniform1f(shaderProgram.iYposUniform, ypos);
+        gl.uniform1f(shaderProgram.iZposUniform, zpos);
+		
+		gl.uniform4f(shaderProgram.iMusicUniform, sndBlueOn, sndRedOn, sndWhiteOn, sndBlackOn);
+    }
+
+    var currentlyPressedKeys = {};
+
+    function handleKeyDown(event) {
+        currentlyPressedKeys[event.keyCode] = true;
+
+        if (String.fromCharCode(event.keyCode) == "F") {
+            filter += 1;
+            if (filter == 3) {
+                filter = 0;
+            }
+        }
+    }
+
+    function handleKeyUp(event) {
+        currentlyPressedKeys[event.keyCode] = false;
+    }
+
+    function handleKeys() {
+        if (currentlyPressedKeys[33]) {
+            // Page Up
+            //z -= 0.05;
+        }
+        if (currentlyPressedKeys[34]) {
+            // Page Down
+            //z += 0.05;
+        }
+        if (currentlyPressedKeys[37]) {
+            // Left cursor key
+            xpos -= 0.1;
+        }
+        if (currentlyPressedKeys[39]) {
+            // Right cursor key
+            xpos += 0.1;
+        }
+        if (currentlyPressedKeys[38]) {
+            // Up cursor key
+            zpos -= 0.1;
+        }
+        if (currentlyPressedKeys[40]) {
+            // Down cursor key
+            zpos += 0.1;
+        }
+    }
+
+    var squareVertexPositionBuffer;
+
+    function initBuffers() {
+
+        squareVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+        vertices = [
+             1.0,  1.0,  0.0,
+            -1.0,  1.0,  0.0,
+             1.0, -1.0,  0.0,
+            -1.0, -1.0,  0.0
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        squareVertexPositionBuffer.itemSize = 3;
+        squareVertexPositionBuffer.numItems = 4;
+    }
+	
+	var baseTexture;
+	function initTexture() {
+		baseTexture = gl.createTexture();
+		baseTexture.image = new Image();
+		baseTexture.image.onload = function() {
+			handleLoadedTexture(baseTexture)
+		}
+
+		//baseTexture.image.crossOrigin = "Anonymous";
+		baseTexture.image.src = "brick_wall.jpg";
+	}
+	
+	function handleLoadedTexture(texture) {
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	}
+
+	var sndBlue = new Audio("ggjBlue.ogg");
+	var sndRed = new Audio("ggjRed.ogg");
+	var sndWhite = new Audio("ggjWhite.ogg");
+	var sndBlack = new Audio("ggjBlack.ogg");
+	
+	var blueVolume = 0.5;
+	var redVolume = 0.5;
+	var whiteVolume = 0.5;
+	var blackVolume = 0.5;
+	function setSndVolume() {
+		
+		var blueD = Math.sqrt((xpos - 5.0)*(xpos - 5.0) + (zpos - 0.0)*(zpos - 0.0));
+		var redD = Math.sqrt((xpos - 0.0)*(xpos - 0.0) + (zpos + 5.0)*(zpos + 5.0));
+		var whiteD = Math.sqrt((xpos + 5.0)*(xpos + 5.0) + (zpos - 0.0)*(zpos - 0.0));
+		var blackD = Math.sqrt((xpos - 0.0)*(xpos - 0.0) + (zpos - 5.0)*(zpos - 5.0));
+		if (blueD < 1.0) blueVolume = 1.0;
+		else blueVolume = 0.5;
+		if (redD < 1.0) redVolume = 1.0;
+		else redVolume = 0.5;
+		if (whiteD < 1.0) whiteVolume = 1.0;
+		else whiteVolume = 0.5;
+		if (blackD < 1.0) blackVolume = 1.0;
+		else blackVolume = 0.5;
+		
+		
+		
+		if (currentlyPressedKeys[49]){
+			if (sndBlueOn) {
+				sndBlue.volume = 0.0;
+				sndBlueOn = false;
+			}
+			else {
+				sndBlue.volume = blueVolume;
+				sndBlueOn = true;
+			}
+			currentlyPressedKeys[49] = false;
+		}
+		
+		if (currentlyPressedKeys[50]){
+			if (sndRedOn) {
+				sndRed.volume = 0.0;
+				sndRedOn = false;
+			}
+			else {
+				sndRed.volume = redVolume;
+				sndRedOn = true;
+			}
+			currentlyPressedKeys[50] = false;
+		}
+		
+		if (currentlyPressedKeys[51]){
+			if (sndWhiteOn) {
+				sndWhite.volume = 0.0;
+				sndWhiteOn = false;
+			}
+			else {
+				sndWhite.volume = whiteVolume;
+				sndWhiteOn = true;
+			}
+			currentlyPressedKeys[51] = false;
+		}
+		
+		if (currentlyPressedKeys[52]){
+			if (sndBlackOn) {
+				sndBlack.volume = 0.0;
+				sndBlackOn = false;
+			}
+			else {
+				sndBlack.volume = blackVolume;
+				sndBlackOn = true;
+			}
+			currentlyPressedKeys[52] = false;
+		}
+		
+		
+		
+		
+		
+		if (sndBlue.ended && sndRed.ended && sndWhite.ended && sndBlack.ended ) {
+			sndBlue.play();
+			sndRed.play();
+			sndWhite.play();
+			sndBlack.play();
+		}
+	}
+	
+    function drawScene() {
+        
+        handleKeys();
+        setSndVolume();
+        
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+		setUniforms();
+		
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, baseTexture);
+		gl.uniform1i(shaderProgram.iChannel0Uniform, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, squareVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, squareVertexPositionBuffer.numItems);
+    }
+
+    function webGLStart() {
+        var canvas = document.getElementById("webgl-canvas");
+        initGL(canvas);
+        initShaders();
+        initBuffers();
+		initTexture();
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+        
+        document.onkeydown = handleKeyDown;
+        document.onkeyup = handleKeyUp;
+
+        setInterval(drawScene, 1000.0/30.0);
+		
+		sndBlue.preload = true;
+		sndRed.preload = true;
+		sndWhite.preload = true;
+		sndBlack.preload = true;
+		
+		//sndBlue.loop = true;
+		//sndRed.loop = true;
+		//sndWhite.loop = true;
+		//sndBlack.loop = true;
+		
+		sndBlue.mediaGroup = "bgm";
+		sndRed.mediaGroup = "bgm";
+		sndWhite.mediaGroup = "bgm";
+		sndBlack.mediaGroup = "bgm";
+				
+		sndBlue.play();
+		sndRed.play();
+		sndWhite.play();
+		sndBlack.play();
+    }
+
+
+</script>
+
+
+</head>
+
+
+<body onload="webGLStart();">
+
+    <canvas id="webgl-canvas" style="border: none;" width="512" height="288"></canvas>
+
+</body>
+
+</html>
